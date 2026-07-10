@@ -10,3 +10,10 @@ export function getYesterdayUtcDate(): string {
 export function getDatePart(value: string): string {
 	return value.slice(0, 10);
 }
+
+export function getUtcDateDaysAgo(daysAgo: number): string {
+	const date = new Date();
+	date.setUTCDate(date.getUTCDate() - daysAgo);
+
+	return date.toISOString().substring(0, 10);
+}

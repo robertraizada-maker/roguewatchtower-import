@@ -13,6 +13,13 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "roguewatchtower-db",
+			"database_id": "01c40a05-6c39-4856-a455-57f426b653f9"
+		}
 	]
 	/**
 	 * Smart Placement

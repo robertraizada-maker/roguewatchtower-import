@@ -23,12 +23,18 @@ export function filterTournamentsForDate(
 	tournaments: Tournament[],
 	reportDate: string
 ): Tournament[] {
-	return tournaments.filter((tournament) => {
-		return (
-			getDatePart(tournament.date) === reportDate &&
-			tournament.game === IMPORT_SETTINGS.game &&
-			tournament.format === IMPORT_SETTINGS.format &&
-			tournament.players >= IMPORT_SETTINGS.minimumPlayers
-		);
-	});
+	const matchingDate = tournaments.filter(
+		(t) => getDatePart(t.date) === reportDate
+	);
+
+	console.log(
+		matchingDate.map((t) => ({
+			name: t.name,
+			game: t.game,
+			format: t.format,
+			date: t.date,
+		}))
+	);
+
+	return matchingDate;
 }

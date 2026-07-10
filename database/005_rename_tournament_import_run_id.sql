@@ -1,0 +1,1 @@
+ALTER TABLE tournaments RENAME COLUMN import_run_id TO last_import_run_id;
