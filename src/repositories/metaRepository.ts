@@ -22,6 +22,8 @@ export async function getTopRogueDecksForDate(
 			),
 			rogue_results AS (
 				SELECT
+					ts.tournament_id,
+					ts.player_id,
 					ts.deck_name,
 					p.name AS player_name,
 					t.name AS tournament_name,
@@ -30,6 +32,7 @@ export async function getTopRogueDecksForDate(
 					ts.record_wins,
 					ts.record_losses,
 					ts.record_ties,
+					ts.decklist_export,
 					(ts.record_wins + ts.record_losses + ts.record_ties) AS rounds_played,
 					ROUND((ts.standing * 100.0) / NULLIF(t.players, 0), 2) AS finish_percentage
 				FROM tournament_standings ts
@@ -44,7 +47,7 @@ export async function getTopRogueDecksForDate(
 				  AND ts.deck_name NOT IN (
 					  SELECT deck_name FROM meta_decks
 				  )
-				  AND (ts.record_wins + ts.record_losses + ts.record_ties) >= 3
+				  AND t.players >= 32
 			),
 			best_rogue_results AS (
 				SELECT
@@ -54,6 +57,8 @@ export async function getTopRogueDecksForDate(
 				GROUP BY deck_name
 			)
 			SELECT
+				rr.tournament_id,
+				rr.player_id,
 				rr.deck_name,
 				rr.player_name,
 				rr.tournament_name,
@@ -63,7 +68,8 @@ export async function getTopRogueDecksForDate(
 				rr.record_losses AS losses,
 				rr.record_ties AS ties,
 				rr.rounds_played,
-				rr.finish_percentage
+				rr.finish_percentage,
+				rr.decklist_export
 			FROM rogue_results rr
 			INNER JOIN best_rogue_results brr
 				ON rr.deck_name = brr.deck_name
@@ -71,7 +77,9 @@ export async function getTopRogueDecksForDate(
 			ORDER BY
 				rr.finish_percentage ASC,
 				rr.tournament_players DESC,
-				rr.record_wins DESC
+				rr.record_wins DESC,
+				rr.standing ASC,
+				rr.player_id ASC
 			LIMIT ?`
 		)
 		.bind(
