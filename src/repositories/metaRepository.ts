@@ -6,25 +6,38 @@ export async function getTopRogueDecksForDate(
 ): Promise<any[]> {
 	return await db
 		.prepare(
-			`WITH meta_decks AS (
+			`WITH ranked_meta_decks AS (
 				SELECT
-					ts.deck_name
+					ts.deck_name,
+					COUNT(*) AS play_count,
+					ROW_NUMBER() OVER (
+						ORDER BY COUNT(*) DESC, ts.deck_name ASC
+					) AS meta_rank
 				FROM tournament_standings ts
 				INNER JOIN tournaments t
 					ON ts.tournament_id = t.id
 				WHERE ts.deck_name IS NOT NULL
 				  AND ts.deck_name <> 'Unknown'
+				  AND ts.deck_name <> 'Other'
 				  AND DATE(t.tournament_date) >= DATE(?, '-' || ? || ' days')
 				  AND DATE(t.tournament_date) < DATE(?)
 				GROUP BY ts.deck_name
-				ORDER BY COUNT(*) DESC
-				LIMIT ?
 			),
 			rogue_results AS (
 				SELECT
 					ts.tournament_id,
 					ts.player_id,
 					ts.deck_name,
+					rmd.meta_rank,
+					rmd.play_count AS meta_play_count,
+					CASE
+						WHEN rmd.meta_rank IS NULL THEN 5
+						WHEN rmd.meta_rank <= 60 THEN 1
+						WHEN rmd.meta_rank <= 70 THEN 2
+						WHEN rmd.meta_rank <= 80 THEN 3
+						WHEN rmd.meta_rank <= 90 THEN 4
+						ELSE 5
+					END AS rogue_rating,
 					p.name AS player_name,
 					t.name AS tournament_name,
 					t.players AS tournament_players,
@@ -40,12 +53,15 @@ export async function getTopRogueDecksForDate(
 					ON ts.tournament_id = t.id
 				INNER JOIN players p
 					ON ts.player_id = p.id
+				LEFT JOIN ranked_meta_decks rmd
+					ON ts.deck_name = rmd.deck_name
 				WHERE ts.deck_name IS NOT NULL
 				  AND ts.deck_name <> 'Unknown'
 				  AND ts.standing IS NOT NULL
 				  AND DATE(t.tournament_date) = DATE(?)
-				  AND ts.deck_name NOT IN (
-					  SELECT deck_name FROM meta_decks
+				  AND (
+					  rmd.meta_rank IS NULL
+					  OR rmd.meta_rank > ?
 				  )
 				  AND t.players >= 32
 			),
@@ -60,6 +76,9 @@ export async function getTopRogueDecksForDate(
 				rr.tournament_id,
 				rr.player_id,
 				rr.deck_name,
+				rr.meta_rank,
+				rr.meta_play_count,
+				rr.rogue_rating,
 				rr.player_name,
 				rr.tournament_name,
 				rr.tournament_players,
@@ -86,8 +105,8 @@ export async function getTopRogueDecksForDate(
 			reportDate,
 			ROGUE_SETTINGS.metaWindowDays,
 			reportDate,
-			ROGUE_SETTINGS.metaDeckCount,
 			reportDate,
+			ROGUE_SETTINGS.metaDeckCount,
 			ROGUE_SETTINGS.rogueDeckCount
 		)
 		.all<any>()
