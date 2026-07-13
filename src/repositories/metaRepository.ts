@@ -26,6 +26,7 @@ export async function getTopRogueDecksForDate(
 			rogue_results AS (
 				SELECT
 					ts.tournament_id,
+					t.limitless_id AS tournament_limitless_id,
 					ts.player_id,
 					ts.deck_name,
 					rmd.meta_rank,
@@ -74,6 +75,7 @@ export async function getTopRogueDecksForDate(
 			)
 			SELECT
 				rr.tournament_id,
+				rr.tournament_limitless_id,
 				rr.player_id,
 				rr.deck_name,
 				rr.meta_rank,
@@ -129,3 +131,4 @@ LIMIT 28`
 
 	return (result.results ?? []).map((row) => row.report_date);
 }
+
