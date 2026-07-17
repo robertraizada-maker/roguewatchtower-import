@@ -15,6 +15,11 @@ import {
 } from "./utils/cors";
 import { triggerPagesDeploy } from "./utils/triggerPagesDeploy";
 import { deleteImportDataForDate } from "./repositories/importRunRepository";
+import {
+	createMetaDeckCriteria,
+	deleteMetaDeckCriteria,
+	listActiveMetaDeckCriteria,
+} from "./repositories/metaDeckCriteriaRepository";
 
 export interface Env {
 	DB: D1Database;
@@ -72,6 +77,10 @@ async function readJsonBody(request: Request): Promise<any> {
 	} catch {
 		return null;
 	}
+}
+
+function toDateOnly(value: string): string {
+	return new Date(value).toISOString().slice(0, 10);
 }
 export default {
 	async scheduled(controller: ScheduledController, env: Env): Promise<void> {
@@ -139,6 +148,89 @@ export default {
 				return Response.json(results);
 			}
 
+			if (pathname === "/admin/meta-deck-criteria") {
+				const unauthorized = requireAdminApiToken(request, env);
+
+				if (unauthorized) {
+					return unauthorized;
+				}
+
+				if (request.method === "GET") {
+					const criteria = await listActiveMetaDeckCriteria(env.DB);
+
+					return Response.json({
+						success: true,
+						criteria,
+					});
+				}
+
+				if (request.method === "DELETE") {
+					const id = url.searchParams.get("id");
+
+					if (!id) {
+						return Response.json(
+							{
+								success: false,
+								message: "Missing criteria id.",
+							},
+							{ status: 400 }
+						);
+					}
+
+					await deleteMetaDeckCriteria(env.DB, id);
+					const criteria = await listActiveMetaDeckCriteria(env.DB);
+
+					return Response.json({
+						success: true,
+						criteria,
+					});
+				}
+
+				if (request.method !== "POST") {
+					return Response.json(
+						{
+							success: false,
+							message: "Method not allowed.",
+						},
+						{ status: 405, headers: { Allow: "GET, POST, DELETE" } }
+					);
+				}
+
+				const body = await readJsonBody(request);
+				const archetype = body?.archetype?.trim();
+				const criteria = Array.isArray(body?.criteria) ? body.criteria : [];
+
+				if (!archetype || criteria.length === 0) {
+					return Response.json(
+						{
+							success: false,
+							message: "Add an archetype and at least one criteria line.",
+						},
+						{ status: 400 }
+					);
+				}
+
+				const createdAt = body.createdAt || new Date().toISOString();
+				const startsAt = body.startsAt || body.refreshDate || getUtcDateDaysAgo(1);
+				const expiresAt = body.expiresAt || new Date(
+					new Date(createdAt).getTime() + 28 * 24 * 60 * 60 * 1000
+				).toISOString();
+
+				await createMetaDeckCriteria(env.DB, {
+					archetype,
+					criteria,
+					criteriaText: body.criteriaText,
+					startsAt: toDateOnly(startsAt),
+					expiresAt: toDateOnly(expiresAt),
+					createdAt,
+				});
+
+				return Response.json({
+					success: true,
+					criteria: await listActiveMetaDeckCriteria(env.DB),
+				});
+			}
+
 			if (pathname === "/admin/import/yesterday") {
 				const unauthorized = requireAdminApiToken(request, env);
 
@@ -178,6 +270,35 @@ export default {
 				return Response.json({
 					...result,
 					message: `Imported data for ${reportDate}.`,
+					pagesDeploy,
+				});
+			}
+			if (pathname === "/admin/deck-of-the-day/repopulate") {
+				const unauthorized = requireAdminApiToken(request, env);
+
+				if (unauthorized) {
+					return unauthorized;
+				}
+
+				if (request.method !== "POST") {
+					return Response.json(
+						{
+							success: false,
+							message: "Method not allowed.",
+						},
+						{ status: 405, headers: { Allow: "POST" } }
+					);
+				}
+
+				const body = await readJsonBody(request);
+				const reportDate = body?.date || getUtcDateDaysAgo(1);
+				const rogueDecks = await getTopRogueDecksForDate(env.DB, reportDate);
+				const pagesDeploy = await triggerPagesDeploy(env);
+
+				return Response.json({
+					success: true,
+					reportDate,
+					rogueDecks,
 					pagesDeploy,
 				});
 			}

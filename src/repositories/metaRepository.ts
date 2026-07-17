@@ -1,10 +1,143 @@
 import { ROGUE_SETTINGS } from "../config";
+import {
+	getMetaDeckCriteriaForDate,
+	type MetaDeckCriteriaRecord,
+} from "./metaDeckCriteriaRepository";
+
+interface PokemonCardLine {
+	quantity: number;
+	name: string;
+}
+
+function normalisePokemonName(name: string) {
+	return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function parsePokemonCardLine(line: string): PokemonCardLine | null {
+	const match = /^(\d+)\s+(.+)$/.exec(line.trim());
+
+	if (!match) {
+		return null;
+	}
+
+	const cardText = match[2].trim();
+	const cardParts = cardText.split(/\s+/);
+	const maybeSetCode = cardParts.at(-2) ?? "";
+	const maybeCardNumber = cardParts.at(-1) ?? "";
+	const hasSetAndNumber =
+		cardParts.length >= 3 &&
+		/^[A-Z0-9]{2,8}$/i.test(maybeSetCode) &&
+		/^[A-Z]*\d+[a-z]?(?:\/\d+)?$/i.test(maybeCardNumber);
+
+	return {
+		quantity: Number(match[1]),
+		name: hasSetAndNumber ? cardParts.slice(0, -2).join(" ") : cardText,
+	};
+}
+
+function getPokemonLines(decklistExport: string | null) {
+	if (!decklistExport) {
+		return [];
+	}
+
+	const lines = decklistExport.split(/\r?\n/);
+	const pokemonHeaderIndex = lines.findIndex((line) =>
+		/^pok.mon:/i.test(line.trim())
+	);
+
+	if (pokemonHeaderIndex === -1) {
+		return [];
+	}
+
+	const pokemonLines: string[] = [];
+
+	for (const line of lines.slice(pokemonHeaderIndex + 1)) {
+		const trimmed = line.trim();
+
+		if (!trimmed) {
+			continue;
+		}
+
+		if (/^(trainer|energy):/i.test(trimmed)) {
+			break;
+		}
+
+		pokemonLines.push(trimmed);
+	}
+
+	return pokemonLines;
+}
+
+function getPokemonCounts(decklistExport: string | null) {
+	const counts = new Map<string, number>();
+
+	getPokemonLines(decklistExport)
+		.map(parsePokemonCardLine)
+		.filter((card): card is PokemonCardLine => card !== null)
+		.forEach((card) => {
+			const name = normalisePokemonName(card.name);
+			counts.set(name, (counts.get(name) ?? 0) + card.quantity);
+		});
+
+	return counts;
+}
+
+function getMatchingPokemonCount(
+	pokemonCounts: Map<string, number>,
+	pokemonName: string
+) {
+	const normalisedPokemonName = normalisePokemonName(pokemonName);
+	const exactCount = pokemonCounts.get(normalisedPokemonName);
+
+	if (exactCount !== undefined) {
+		return exactCount;
+	}
+
+	let matchingCount = 0;
+
+	pokemonCounts.forEach((count, cardName) => {
+		if (cardName.startsWith(`${normalisedPokemonName} `)) {
+			matchingCount += count;
+		}
+	});
+
+	return matchingCount;
+}
+
+function matchesMetaDeckCriteria(
+	decklistExport: string | null,
+	metaDeckCriteria: MetaDeckCriteriaRecord[]
+) {
+	if (metaDeckCriteria.length === 0) {
+		return false;
+	}
+
+	const pokemonCounts = getPokemonCounts(decklistExport);
+
+	return metaDeckCriteria.some((deckType) =>
+		deckType.criteria.every((criterion) => {
+			const count = getMatchingPokemonCount(
+				pokemonCounts,
+				criterion.pokemonName
+			);
+
+			return count >= criterion.minQuantity;
+		})
+	);
+}
 
 export async function getTopRogueDecksForDate(
 	db: D1Database,
 	reportDate: string
 ): Promise<any[]> {
-	return await db
+	const activeMetaDeckCriteria = await getMetaDeckCriteriaForDate(
+		db,
+		reportDate
+	);
+	const candidateLimit = activeMetaDeckCriteria.length > 0
+		? ROGUE_SETTINGS.rogueDeckCount * 5
+		: ROGUE_SETTINGS.rogueDeckCount;
+	const result = await db
 		.prepare(
 			`WITH ranked_meta_decks AS (
 				SELECT
@@ -109,10 +242,19 @@ export async function getTopRogueDecksForDate(
 			reportDate,
 			reportDate,
 			ROGUE_SETTINGS.metaDeckCount,
-			ROGUE_SETTINGS.rogueDeckCount
+			candidateLimit
 		)
-		.all<any>()
-		.then((result) => result.results ?? []);
+		.all<any>();
+
+	return (result.results ?? [])
+		.filter(
+			(deck) =>
+				!matchesMetaDeckCriteria(
+					deck.decklist_export,
+					activeMetaDeckCriteria
+				)
+		)
+		.slice(0, ROGUE_SETTINGS.rogueDeckCount);
 }
 
 export async function getAvailableMetaDates(
@@ -131,4 +273,3 @@ LIMIT 28`
 
 	return (result.results ?? []).map((row) => row.report_date);
 }
-
