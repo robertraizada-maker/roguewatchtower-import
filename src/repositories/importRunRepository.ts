@@ -183,3 +183,99 @@ export async function deleteImportDataForDate(
 		importRunsDeleted: getChanges(importRuns),
 	};
 }
+export interface ImportRunSummary {
+	id: number;
+	reportDate: string;
+	startedAt: string;
+	completedAt: string | null;
+	status: string;
+	success: number;
+	errorMessage: string | null;
+	elapsedMs: number | null;
+	totalFetched: number;
+	tournamentsAfterFilter: number;
+	tournamentsInserted: number;
+	tournamentsUpdated: number;
+}
+
+interface ImportRunSummaryRow {
+	id: number;
+	report_date: string;
+	started_at: string;
+	completed_at: string | null;
+	status: string;
+	success: number;
+	error_message: string | null;
+	elapsed_ms: number | null;
+	total_fetched: number;
+	tournaments_after_filter: number;
+	tournaments_inserted: number;
+	tournaments_updated: number;
+}
+
+function toImportRunSummary(row: ImportRunSummaryRow): ImportRunSummary {
+	return {
+		id: row.id,
+		reportDate: row.report_date,
+		startedAt: row.started_at,
+		completedAt: row.completed_at,
+		status: row.status,
+		success: row.success,
+		errorMessage: row.error_message,
+		elapsedMs: row.elapsed_ms,
+		totalFetched: row.total_fetched,
+		tournamentsAfterFilter: row.tournaments_after_filter,
+		tournamentsInserted: row.tournaments_inserted,
+		tournamentsUpdated: row.tournaments_updated,
+	};
+}
+
+export async function listLatestImportRunsByDate(
+	db: D1Database,
+	limit = 90
+): Promise<ImportRunSummary[]> {
+	const result = await db
+		.prepare(
+			`WITH latest_runs AS (
+				 SELECT
+					 id,
+					 report_date,
+					 started_at,
+					 completed_at,
+					 status,
+					 success,
+					 error_message,
+					 elapsed_ms,
+					 total_fetched,
+					 tournaments_after_filter,
+					 tournaments_inserted,
+					 tournaments_updated,
+					 ROW_NUMBER() OVER (
+						 PARTITION BY report_date
+						 ORDER BY DATETIME(started_at) DESC, id DESC
+					 ) AS date_rank
+				 FROM import_runs
+			 )
+			 SELECT
+				 id,
+				 report_date,
+				 started_at,
+				 completed_at,
+				 status,
+				 success,
+				 error_message,
+				 elapsed_ms,
+				 total_fetched,
+				 tournaments_after_filter,
+				 tournaments_inserted,
+				 tournaments_updated
+			 FROM latest_runs
+			 WHERE date_rank = 1
+			 ORDER BY DATE(report_date) DESC
+			 LIMIT ?`
+		)
+		.bind(limit)
+		.all<ImportRunSummaryRow>();
+
+	return (result.results ?? []).map(toImportRunSummary);
+}
