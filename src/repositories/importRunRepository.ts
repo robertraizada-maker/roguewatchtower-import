@@ -90,6 +90,7 @@ export async function failImportRun(
 		)
 		.run();
 }
+
 export interface DeleteImportDataResult {
 	reportDate: string;
 	decklistCardsDeleted: number;
@@ -103,10 +104,23 @@ function getChanges(result: D1Result): number {
 	return result.meta?.changes ?? 0;
 }
 
+function getTournamentCleanupCondition(alias = "") {
+	const prefix = alias ? `${alias}.` : "";
+
+	return `${prefix}tournament_date = ?
+				 OR ${prefix}last_import_run_id IN (
+					 SELECT id
+					 FROM import_runs
+					 WHERE report_date = ?
+				 )`;
+}
+
 export async function deleteImportDataForDate(
 	db: D1Database,
 	reportDate: string
 ): Promise<DeleteImportDataResult> {
+	const tournamentCondition = getTournamentCleanupCondition();
+	const joinedTournamentCondition = getTournamentCleanupCondition("t");
 	const decklistCards = await db
 		.prepare(
 			`DELETE FROM decklist_cards
@@ -114,10 +128,10 @@ export async function deleteImportDataForDate(
 				 SELECT d.id
 				 FROM decklists d
 				 INNER JOIN tournaments t ON t.id = d.tournament_id
-				 WHERE t.tournament_date = ?
+				 WHERE ${joinedTournamentCondition}
 			 )`
 		)
-		.bind(reportDate)
+		.bind(reportDate, reportDate)
 		.run();
 
 	const decklists = await db
@@ -126,10 +140,10 @@ export async function deleteImportDataForDate(
 			 WHERE tournament_id IN (
 				 SELECT id
 				 FROM tournaments
-				 WHERE tournament_date = ?
+				 WHERE ${tournamentCondition}
 			 )`
 		)
-		.bind(reportDate)
+		.bind(reportDate, reportDate)
 		.run();
 
 	const standings = await db
@@ -138,18 +152,18 @@ export async function deleteImportDataForDate(
 			 WHERE tournament_id IN (
 				 SELECT id
 				 FROM tournaments
-				 WHERE tournament_date = ?
+				 WHERE ${tournamentCondition}
 			 )`
 		)
-		.bind(reportDate)
+		.bind(reportDate, reportDate)
 		.run();
 
 	const tournaments = await db
 		.prepare(
 			`DELETE FROM tournaments
-			 WHERE tournament_date = ?`
+			 WHERE ${tournamentCondition}`
 		)
-		.bind(reportDate)
+		.bind(reportDate, reportDate)
 		.run();
 
 	const importRuns = await db
