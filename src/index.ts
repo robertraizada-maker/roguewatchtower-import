@@ -90,7 +90,7 @@ export default {
 		const scheduledDate = new Date(controller.scheduledTime);
 
 		if (!isImportScheduleTime(scheduledDate)) {
-			console.log("Skipping scheduled import outside Limitless UTC 00:15", {
+			console.log("Skipping scheduled import outside UK 06:00 or 15:00", {
 				cron: controller.cron,
 				scheduledTime: scheduledDate.toISOString(),
 			});

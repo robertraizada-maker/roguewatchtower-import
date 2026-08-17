@@ -1,4 +1,5 @@
-const DEFAULT_IMPORT_TIME_ZONE = "UTC";
+const DEFAULT_IMPORT_TIME_ZONE = "Europe/London";
+const IMPORT_HOURS = new Set(["06", "15"]);
 
 function getDatePartsInTimeZone(date: Date, timeZone: string) {
 	const parts = new Intl.DateTimeFormat("en-GB", {
@@ -77,5 +78,5 @@ export function isImportScheduleTime(now: Date): boolean {
 	const value = (type: string) =>
 		parts.find((item) => item.type === type)?.value;
 
-	return value("hour") === "00" && value("minute") === "15";
+	return IMPORT_HOURS.has(value("hour") ?? "") && value("minute") === "00";
 }
