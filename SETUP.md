@@ -33,3 +33,7 @@ For an explicit recalculation of an existing date, POST JSON {"date":"YYYY-MM-DD
 ### Additional database savings
 
 Player upserts reuse existing IDs without updating unchanged countries, including when tournament results change. Identity lookups use batches of at most 90 names. Ranking calculation uses a windowed minimum so the daily candidate joins are evaluated once rather than repeated for the best-finish join. Regression tests compare the previous SQL with ties, Other decks, date boundaries and small events. A local comparison also matched all 28 historical report dates; production quota savings still need measurement after rollout.
+
+### Scheduled imports paused for rollout (2026-09-07)
+
+The user authorized pausing the live cron trigger and restoring it after the next completed update. `wrangler.jsonc` deliberately contains `crons: []` so deploying the importer during rollout does not prematurely restart imports. Keep it paused while deploying the optimized worker, populating historical snapshots, importing the missed report date(s), and publishing/verifying the website. Once those steps succeed, restore `crons: ["0 5,6,14,15 * * *"]` and run `npx wrangler triggers deploy`. The handler selects 06:00 and 15:00 Europe/London from these UTC triggers. No further user permission is needed to restore the schedule after that successful rollout.
