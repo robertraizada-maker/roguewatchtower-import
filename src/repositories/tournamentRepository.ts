@@ -1,6 +1,6 @@
 import { Tournament } from "../models/tournament";
 
-export type TournamentUpsertResult = "inserted" | "updated";
+export type TournamentUpsertResult = "inserted" | "updated" | "unchanged";
 
 export interface TournamentUpsertResponse {
 	id: number;
@@ -10,16 +10,24 @@ export interface TournamentUpsertResponse {
 export async function upsertTournament(
 	db: D1Database,
 	importRunId: number,
-	tournament: Tournament
+	tournament: Tournament,
+	incremental = false
 ): Promise<TournamentUpsertResponse> {
 	const existing = await db
 		.prepare(
-			`SELECT id
+			`SELECT id, name, tournament_date, players, game, format, organizer_id
 			 FROM tournaments
 			 WHERE limitless_id = ?`
 		)
 		.bind(tournament.id)
-		.first<{ id: number }>();
+		.first<{ id: number; name: string; tournament_date: string; players: number; game: string; format: string; organizer_id: number }>();
+
+	if (incremental && existing && existing.name === tournament.name &&
+		existing.tournament_date === tournament.date && existing.players === tournament.players &&
+		existing.game === tournament.game && existing.format === tournament.format &&
+		existing.organizer_id === tournament.organizerId) {
+		return { id: existing.id, result: "unchanged" };
+	}
 
 	await db
 		.prepare(

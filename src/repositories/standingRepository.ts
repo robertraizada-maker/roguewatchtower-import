@@ -8,7 +8,8 @@ export async function upsertStanding(
 	ties: number,
 	deckLimitlessId: string,
 	deckName: string,
-	decklistExport: string
+	decklistExport: string,
+	playerDisplayName: string
 ): Promise<void> {
 	await db
 		.prepare(
@@ -21,10 +22,11 @@ export async function upsertStanding(
 				record_ties,
 				deck_limitless_id,
 				deck_name,
+				player_display_name,
 				decklist_export,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(tournament_id, player_id) DO UPDATE SET
 				standing = excluded.standing,
 				record_wins = excluded.record_wins,
@@ -32,6 +34,7 @@ export async function upsertStanding(
 				record_ties = excluded.record_ties,
 				deck_limitless_id = excluded.deck_limitless_id,
 				deck_name = excluded.deck_name,
+				player_display_name = excluded.player_display_name,
 				decklist_export = excluded.decklist_export,
 				updated_at = CURRENT_TIMESTAMP`
 		)
@@ -44,6 +47,7 @@ export async function upsertStanding(
 			ties,
 			deckLimitlessId,
 			deckName,
+			playerDisplayName,
 			decklistExport
 		)
 		.run();
@@ -59,6 +63,7 @@ export interface StandingUpsert {
 	deckLimitlessId: string;
 	deckName: string;
 	decklistExport: string;
+	playerDisplayName: string;
 }
 
 export async function upsertStandings(
@@ -81,10 +86,11 @@ export async function upsertStandings(
 					record_ties,
 					deck_limitless_id,
 					deck_name,
+					player_display_name,
 					decklist_export,
 					updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 				ON CONFLICT(tournament_id, player_id) DO UPDATE SET
 					standing = excluded.standing,
 					record_wins = excluded.record_wins,
@@ -92,6 +98,7 @@ export async function upsertStandings(
 					record_ties = excluded.record_ties,
 					deck_limitless_id = excluded.deck_limitless_id,
 					deck_name = excluded.deck_name,
+					player_display_name = excluded.player_display_name,
 					decklist_export = excluded.decklist_export,
 					updated_at = CURRENT_TIMESTAMP`
 			)
@@ -104,6 +111,7 @@ export async function upsertStandings(
 				standing.ties,
 				standing.deckLimitlessId,
 				standing.deckName,
+				standing.playerDisplayName,
 				standing.decklistExport
 			)
 	);

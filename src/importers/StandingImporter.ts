@@ -8,13 +8,16 @@ import {
 import { PlayerDeckImporter } from "./PlayerDeckImporter";
 import { IMPORT_SETTINGS } from "../config";
 import { ImportedStanding } from "../models/importedStanding";
+import { getChangedStandings } from "../repositories/incrementalStandingRepository";
+import { buildDecklistExport } from "../utils/buildDecklistExport";
 
 export class StandingImporter {
 	constructor(private db: D1Database) { }
 
 	async importForTournament(
 		tournamentId: number,
-		limitlessTournamentId: string
+		limitlessTournamentId: string,
+		incremental = false
 	): Promise<ImportedStanding[]> {
 		const standingsJson =
 			await getTournamentStandings(limitlessTournamentId);
@@ -22,9 +25,14 @@ export class StandingImporter {
 		/*
 		 * Parse every standing before writing anything to D1.
 		 */
-		const parsedStandings = standingsJson.map((standingJson) =>
+		let parsedStandings = standingsJson.map((standingJson) =>
 			parseStanding(standingJson)
 		);
+
+		if (incremental) {
+			parsedStandings = await getChangedStandings(this.db, tournamentId, parsedStandings);
+		}
+		if (parsedStandings.length === 0) return [];
 
 		/*
 		 * Insert/update all players in one D1 batch and retrieve their IDs.
@@ -49,13 +57,14 @@ export class StandingImporter {
 			standingUpserts.push({
 				tournamentId,
 				playerId,
+				playerDisplayName: standing.player.displayName,
 				placing: standing.placing,
 				wins: standing.wins,
 				losses: standing.losses,
 				ties: standing.ties,
 				deckLimitlessId: standing.deck.limitlessId,
 				deckName: standing.deck.name,
-				decklistExport: "",
+				decklistExport: buildDecklistExport(standing.decklist),
 			});
 
 			importedStandings.push({

@@ -1,10 +1,143 @@
 import { ROGUE_SETTINGS } from "../config";
+import {
+	getMetaDeckCriteriaForDate,
+	type MetaDeckCriteriaRecord,
+} from "./metaDeckCriteriaRepository";
+
+interface PokemonCardLine {
+	quantity: number;
+	name: string;
+}
+
+function normalisePokemonName(name: string) {
+	return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function parsePokemonCardLine(line: string): PokemonCardLine | null {
+	const match = /^(\d+)\s+(.+)$/.exec(line.trim());
+
+	if (!match) {
+		return null;
+	}
+
+	const cardText = match[2].trim();
+	const cardParts = cardText.split(/\s+/);
+	const maybeSetCode = cardParts.at(-2) ?? "";
+	const maybeCardNumber = cardParts.at(-1) ?? "";
+	const hasSetAndNumber =
+		cardParts.length >= 3 &&
+		/^[A-Z0-9]{2,8}$/i.test(maybeSetCode) &&
+		/^[A-Z]*\d+[a-z]?(?:\/\d+)?$/i.test(maybeCardNumber);
+
+	return {
+		quantity: Number(match[1]),
+		name: hasSetAndNumber ? cardParts.slice(0, -2).join(" ") : cardText,
+	};
+}
+
+function getPokemonLines(decklistExport: string | null) {
+	if (!decklistExport) {
+		return [];
+	}
+
+	const lines = decklistExport.split(/\r?\n/);
+	const pokemonHeaderIndex = lines.findIndex((line) =>
+		/^pok.mon:/i.test(line.trim())
+	);
+
+	if (pokemonHeaderIndex === -1) {
+		return [];
+	}
+
+	const pokemonLines: string[] = [];
+
+	for (const line of lines.slice(pokemonHeaderIndex + 1)) {
+		const trimmed = line.trim();
+
+		if (!trimmed) {
+			continue;
+		}
+
+		if (/^(trainer|energy):/i.test(trimmed)) {
+			break;
+		}
+
+		pokemonLines.push(trimmed);
+	}
+
+	return pokemonLines;
+}
+
+function getPokemonCounts(decklistExport: string | null) {
+	const counts = new Map<string, number>();
+
+	getPokemonLines(decklistExport)
+		.map(parsePokemonCardLine)
+		.filter((card): card is PokemonCardLine => card !== null)
+		.forEach((card) => {
+			const name = normalisePokemonName(card.name);
+			counts.set(name, (counts.get(name) ?? 0) + card.quantity);
+		});
+
+	return counts;
+}
+
+function getMatchingPokemonCount(
+	pokemonCounts: Map<string, number>,
+	pokemonName: string
+) {
+	const normalisedPokemonName = normalisePokemonName(pokemonName);
+	const exactCount = pokemonCounts.get(normalisedPokemonName);
+
+	if (exactCount !== undefined) {
+		return exactCount;
+	}
+
+	let matchingCount = 0;
+
+	pokemonCounts.forEach((count, cardName) => {
+		if (cardName.startsWith(`${normalisedPokemonName} `)) {
+			matchingCount += count;
+		}
+	});
+
+	return matchingCount;
+}
+
+function matchesMetaDeckCriteria(
+	decklistExport: string | null,
+	metaDeckCriteria: MetaDeckCriteriaRecord[]
+) {
+	if (metaDeckCriteria.length === 0) {
+		return false;
+	}
+
+	const pokemonCounts = getPokemonCounts(decklistExport);
+
+	return metaDeckCriteria.some((deckType) =>
+		deckType.criteria.every((criterion) => {
+			const count = getMatchingPokemonCount(
+				pokemonCounts,
+				criterion.pokemonName
+			);
+
+			return count >= criterion.minQuantity;
+		})
+	);
+}
 
 export async function getTopRogueDecksForDate(
 	db: D1Database,
 	reportDate: string
 ): Promise<any[]> {
-	return await db
+	const activeMetaDeckCriteria = await getMetaDeckCriteriaForDate(
+		db,
+		reportDate
+	);
+	const candidateLimit = activeMetaDeckCriteria.length > 0
+		? ROGUE_SETTINGS.rogueDeckCount * 5
+		: ROGUE_SETTINGS.rogueDeckCount;
+	const result = await db
 		.prepare(
 			`WITH ranked_meta_decks AS (
 				SELECT
@@ -19,8 +152,8 @@ export async function getTopRogueDecksForDate(
 				WHERE ts.deck_name IS NOT NULL
 				  AND ts.deck_name <> 'Unknown'
 				  AND ts.deck_name <> 'Other'
-				  AND DATE(t.tournament_date) >= DATE(?, '-' || ? || ' days')
-				  AND DATE(t.tournament_date) < DATE(?)
+				  AND t.tournament_date >= DATE(?, '-' || ? || ' days')
+				  AND t.tournament_date < DATE(?)
 				GROUP BY ts.deck_name
 			),
 			rogue_results AS (
@@ -29,6 +162,11 @@ export async function getTopRogueDecksForDate(
 					t.limitless_id AS tournament_limitless_id,
 					ts.player_id,
 					ts.deck_name,
+					CASE
+						WHEN ts.deck_name = 'Other'
+							THEN 'Other:' || ts.tournament_id || ':' || ts.player_id
+						ELSE ts.deck_name
+					END AS deck_key,
 					rmd.meta_rank,
 					rmd.play_count AS meta_play_count,
 					CASE
@@ -39,7 +177,8 @@ export async function getTopRogueDecksForDate(
 						WHEN rmd.meta_rank <= 90 THEN 4
 						ELSE 5
 					END AS rogue_rating,
-					p.name AS player_name,
+					COALESCE(ts.player_display_name, 'Unknown player') AS player_name,
+					p.name AS player_handle,
 					t.name AS tournament_name,
 					t.players AS tournament_players,
 					ts.standing,
@@ -59,7 +198,8 @@ export async function getTopRogueDecksForDate(
 				WHERE ts.deck_name IS NOT NULL
 				  AND ts.deck_name <> 'Unknown'
 				  AND ts.standing IS NOT NULL
-				  AND DATE(t.tournament_date) = DATE(?)
+				  AND t.tournament_date >= DATE(?)
+				  AND t.tournament_date < DATE(?, '+1 day')
 				  AND (
 					  rmd.meta_rank IS NULL
 					  OR rmd.meta_rank > ?
@@ -68,10 +208,10 @@ export async function getTopRogueDecksForDate(
 			),
 			best_rogue_results AS (
 				SELECT
-					deck_name,
+					deck_key,
 					MIN(finish_percentage) AS best_finish_percentage
 				FROM rogue_results
-				GROUP BY deck_name
+				GROUP BY deck_key
 			)
 			SELECT
 				rr.tournament_id,
@@ -82,6 +222,7 @@ export async function getTopRogueDecksForDate(
 				rr.meta_play_count,
 				rr.rogue_rating,
 				rr.player_name,
+				rr.player_handle,
 				rr.tournament_name,
 				rr.tournament_players,
 				rr.standing,
@@ -93,7 +234,7 @@ export async function getTopRogueDecksForDate(
 				rr.decklist_export
 			FROM rogue_results rr
 			INNER JOIN best_rogue_results brr
-				ON rr.deck_name = brr.deck_name
+				ON rr.deck_key = brr.deck_key
 			   AND rr.finish_percentage = brr.best_finish_percentage
 			ORDER BY
 				rr.finish_percentage ASC,
@@ -108,11 +249,21 @@ export async function getTopRogueDecksForDate(
 			ROGUE_SETTINGS.metaWindowDays,
 			reportDate,
 			reportDate,
+			reportDate,
 			ROGUE_SETTINGS.metaDeckCount,
-			ROGUE_SETTINGS.rogueDeckCount
+			candidateLimit
 		)
-		.all<any>()
-		.then((result) => result.results ?? []);
+		.all<any>();
+
+	return (result.results ?? [])
+		.filter(
+			(deck) =>
+				!matchesMetaDeckCriteria(
+					deck.decklist_export,
+					activeMetaDeckCriteria
+				)
+		)
+		.slice(0, ROGUE_SETTINGS.rogueDeckCount);
 }
 
 export async function getAvailableMetaDates(
@@ -124,11 +275,10 @@ export async function getAvailableMetaDates(
     report_date
 FROM import_runs
 WHERE status = 'Completed'
-ORDER BY DATE(report_date) DESC
+ORDER BY report_date DESC
 LIMIT 28`
 		)
 		.all<{ report_date: string }>();
 
 	return (result.results ?? []).map((row) => row.report_date);
 }
-

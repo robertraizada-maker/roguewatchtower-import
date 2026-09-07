@@ -8,8 +8,7 @@ import {
 import { TournamentImporter } from "../importers/TournamentImporter";
 import { StandingImporter } from "../importers/StandingImporter";
 import { ImportedStanding } from "../models/importedStanding";
-import { buildDecklistExport } from "../utils/buildDecklistExport";
-import { getTopRogueDecksForDate } from "../repositories/metaRepository";
+import { refreshRankingsAfterImport } from "../repositories/rankingSnapshotRepository";
 
 export class ImportService {
 	constructor(private db: D1Database) { }
@@ -20,7 +19,7 @@ export class ImportService {
 		return await this.importDate(dateString);
 	}
 
-	async importDate(reportDate?: string) {
+	async importDate(reportDate?: string, incremental = false) {
 		const selectedDate = reportDate || getYesterdayInImportTimeZone();
 		const startedAt = Date.now();
 
@@ -32,7 +31,8 @@ export class ImportService {
 
 			const result = await tournamentImporter.importForDate(
 				selectedDate,
-				importRunId
+				importRunId,
+				incremental
 			);
 
 			console.log("Tournament import:", Date.now() - t0);
@@ -49,7 +49,8 @@ export class ImportService {
 					batch.map((tournament) =>
 						standingImporter.importForTournament(
 							tournament.id,
-							tournament.limitlessId
+							tournament.limitlessId,
+							incremental
 						)
 					)
 				);
@@ -62,40 +63,7 @@ export class ImportService {
 			console.log("Standings import:", Date.now() - t1);
 			const t2 = Date.now();
 
-			const topRogueDecks = await getTopRogueDecksForDate(
-				this.db,
-				selectedDate
-			);
-
-			for (const rogueDeck of topRogueDecks) {
-				const match = importedStandings.find(
-					(item) =>
-						item.tournamentId === rogueDeck.tournament_id &&
-						item.playerId === rogueDeck.player_id
-				);
-
-				if (!match) {
-					continue;
-				}
-
-				const decklistExport = buildDecklistExport(
-					match.standing.decklist
-				);
-
-				await this.db
-					.prepare(
-						`UPDATE tournament_standings
-			 SET decklist_export = ?
-			 WHERE tournament_id = ?
-			   AND player_id = ?`
-					)
-					.bind(
-						decklistExport,
-						match.tournamentId,
-						match.playerId
-					)
-					.run();
-			}
+			await refreshRankingsAfterImport(this.db, selectedDate);
 
 			console.log("Rogue calculation:", Date.now() - t2);
 
@@ -116,12 +84,15 @@ export class ImportService {
 				reportDate: selectedDate,
 				importRunId,
 				summary: {
+					mode: incremental ? "incremental" : "full",
+					standingsWritten: importedStandings.length,
 					totalFetched: result.totalFetched,
 					game: IMPORT_SETTINGS.game,
 					format: IMPORT_SETTINGS.format,
 					tournamentsAfterFilter: result.tournamentsAfterFilter,
 					tournamentsInserted: result.tournamentsInserted,
 					tournamentsUpdated: result.tournamentsUpdated,
+					tournamentsUnchanged: result.tournamentsUnchanged,
 					elapsedMs,
 				},
 				tournaments: result.tournaments,

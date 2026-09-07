@@ -14,6 +14,7 @@ export interface TournamentImportResult {
 	tournamentsAfterFilter: number;
 	tournamentsInserted: number;
 	tournamentsUpdated: number;
+	tournamentsUnchanged: number;
 	tournaments: ImportedTournament[];
 }
 
@@ -22,13 +23,15 @@ export class TournamentImporter {
 
 	async importForDate(
 		reportDate: string,
-		importRunId: number
+		importRunId: number,
+		incremental = false
 	): Promise<TournamentImportResult> {
 		const tournaments = await getStandardTournaments();
 		const filtered = filterTournamentsForDate(tournaments, reportDate);
 
 		let tournamentsInserted = 0;
 		let tournamentsUpdated = 0;
+		let tournamentsUnchanged = 0;
 
 		const importedTournaments: ImportedTournament[] = [];
 
@@ -36,7 +39,8 @@ export class TournamentImporter {
 			const upsertResult = await upsertTournament(
 				this.db,
 				importRunId,
-				tournament
+				tournament,
+				incremental
 			);
 
 			importedTournaments.push({
@@ -46,8 +50,10 @@ export class TournamentImporter {
 
 			if (upsertResult.result === "inserted") {
 				tournamentsInserted++;
-			} else {
+			} else if (upsertResult.result === "updated") {
 				tournamentsUpdated++;
+			} else {
+				tournamentsUnchanged++;
 			}
 		}
 
@@ -56,6 +62,7 @@ export class TournamentImporter {
 			tournamentsAfterFilter: filtered.length,
 			tournamentsInserted,
 			tournamentsUpdated,
+			tournamentsUnchanged,
 			tournaments: importedTournaments,
 		};
 	}

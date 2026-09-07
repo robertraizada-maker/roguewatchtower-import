@@ -90,3 +90,82 @@ export async function failImportRun(
 		)
 		.run();
 }
+export interface DeleteImportDataResult {
+	reportDate: string;
+	decklistCardsDeleted: number;
+	decklistsDeleted: number;
+	standingsDeleted: number;
+	tournamentsDeleted: number;
+	importRunsDeleted: number;
+}
+
+function getChanges(result: D1Result): number {
+	return result.meta?.changes ?? 0;
+}
+
+export async function deleteImportDataForDate(
+	db: D1Database,
+	reportDate: string
+): Promise<DeleteImportDataResult> {
+	const decklistCards = await db
+		.prepare(
+			`DELETE FROM decklist_cards
+			 WHERE decklist_id IN (
+				 SELECT d.id
+				 FROM decklists d
+				 INNER JOIN tournaments t ON t.id = d.tournament_id
+				 WHERE t.tournament_date = ?
+			 )`
+		)
+		.bind(reportDate)
+		.run();
+
+	const decklists = await db
+		.prepare(
+			`DELETE FROM decklists
+			 WHERE tournament_id IN (
+				 SELECT id
+				 FROM tournaments
+				 WHERE tournament_date = ?
+			 )`
+		)
+		.bind(reportDate)
+		.run();
+
+	const standings = await db
+		.prepare(
+			`DELETE FROM tournament_standings
+			 WHERE tournament_id IN (
+				 SELECT id
+				 FROM tournaments
+				 WHERE tournament_date = ?
+			 )`
+		)
+		.bind(reportDate)
+		.run();
+
+	const tournaments = await db
+		.prepare(
+			`DELETE FROM tournaments
+			 WHERE tournament_date = ?`
+		)
+		.bind(reportDate)
+		.run();
+
+	const importRuns = await db
+		.prepare(
+			`DELETE FROM import_runs
+			 WHERE report_date = ?`
+		)
+		.bind(reportDate)
+		.run();
+
+	return {
+		reportDate,
+		decklistCardsDeleted: getChanges(decklistCards),
+		decklistsDeleted: getChanges(decklists),
+		standingsDeleted: getChanges(standings),
+		tournamentsDeleted: getChanges(tournaments),
+		importRunsDeleted: getChanges(importRuns),
+	};
+}

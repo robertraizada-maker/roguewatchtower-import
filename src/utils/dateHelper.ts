@@ -80,3 +80,9 @@ export function isImportScheduleTime(now: Date): boolean {
 
 	return IMPORT_HOURS.has(value("hour") ?? "") && value("minute") === "00";
 }
+
+export function isAfternoonImport(now: Date): boolean {
+    return new Intl.DateTimeFormat("en-GB", {
+        timeZone: DEFAULT_IMPORT_TIME_ZONE, hour: "2-digit", hourCycle: "h23",
+    }).format(now) === "15";
+}

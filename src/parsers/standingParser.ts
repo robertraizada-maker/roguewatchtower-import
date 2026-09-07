@@ -1,9 +1,14 @@
 import { Standing } from "../models/standing";
 
 export function parseStanding(data: any): Standing {
+	if (typeof data.name !== "string" || !data.name.trim()) {
+		throw new Error("Limitless standing is missing its display name");
+	}
 	return {
 		player: {
+			// Internal handle for identity and URLs only.
 			name: data.player ?? data.name,
+			displayName: data.name,
 			country: data.country ?? null,
 		},
 		deck: {
