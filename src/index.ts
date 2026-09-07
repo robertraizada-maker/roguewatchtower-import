@@ -14,7 +14,7 @@ import {
 	jsonWithCors,
 } from "./utils/cors";
 import { triggerPagesDeploy } from "./utils/triggerPagesDeploy";
-import { deleteImportDataForDate } from "./repositories/importRunRepository";
+import { deleteImportDataForDate, listLatestImportRunsByDate } from "./repositories/importRunRepository";
 import { requireAdminApiToken } from "./utils/adminAuth";
 import {
 	createMetaDeckCriteria,
@@ -190,6 +190,64 @@ export default {
 				});
 			}
 
+			if (pathname === "/admin/imports") {
+				const unauthorized = requireAdminApiToken(request, env);
+
+				if (unauthorized) {
+					return unauthorized;
+				}
+
+				if (request.method === "GET") {
+					const limit = Number(url.searchParams.get("limit") ?? 90);
+					const imports = await listLatestImportRunsByDate(
+						env.DB,
+						Number.isFinite(limit) && limit > 0 ? limit : 90
+					);
+
+					return Response.json({
+						success: true,
+						latestImport: imports[0] ?? null,
+						imports,
+					});
+				}
+
+				if (request.method === "DELETE") {
+					const reportDate = url.searchParams.get("date");
+
+					if (!reportDate) {
+						return Response.json(
+							{
+								success: false,
+								message: "Missing import date.",
+							},
+							{ status: 400 }
+						);
+					}
+
+					const result = await deleteImportDataForDate(env.DB, reportDate);
+					await env.DB.prepare("DELETE FROM ranking_snapshots WHERE report_date = ?").bind(reportDate).run();
+					await refreshLaterRankings(env.DB, reportDate);
+					const pagesDeploy = await triggerPagesDeploy(env);
+					const imports = await listLatestImportRunsByDate(env.DB);
+
+					return Response.json({
+						success: true,
+						message: `Deleted import data for ${reportDate}.`,
+						deleteResult: result,
+						latestImport: imports[0] ?? null,
+						imports,
+						pagesDeploy,
+					});
+				}
+
+				return Response.json(
+					{
+						success: false,
+						message: "Method not allowed.",
+					},
+					{ status: 405, headers: { Allow: "GET, DELETE" } }
+				);
+			}
 			if (pathname === "/admin/redeploy") {
 				const unauthorized = requireAdminApiToken(request, env);
 
