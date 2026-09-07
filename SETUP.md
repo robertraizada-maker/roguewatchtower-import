@@ -29,3 +29,7 @@ Wait until D1 reads are available. No production migration or deployment is perf
 The population script fills the latest 28 imported dates, skips saved dates, stops on errors, and can be resumed. It uses the protected repopulate endpoint with redeploy:false so it does not launch a website build for each date. Historical population still runs expensive calculations once per date: if it exhausts the quota, resume after the reset. Do not rebuild during partial population. The existing static website remains available during rollout, but unsaved dates on the API return 503 until populated.
 
 For an explicit recalculation of an existing date, POST JSON {"date":"YYYY-MM-DD","redeploy":false} to /admin/deck-of-the-day/repopulate with the same bearer token, then rebuild once when all requested dates are ready.
+
+### Additional database savings
+
+Player upserts reuse existing IDs without updating unchanged countries, including when tournament results change. Identity lookups use batches of at most 90 names. Ranking calculation uses a windowed minimum so the daily candidate joins are evaluated once rather than repeated for the best-finish join. Regression tests compare the previous SQL with ties, Other decks, date boundaries and small events. A local comparison also matched all 28 historical report dates; production quota savings still need measurement after rollout.

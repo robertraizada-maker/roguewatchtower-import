@@ -207,11 +207,8 @@ export async function getTopRogueDecksForDate(
 				  AND t.players >= 32
 			),
 			best_rogue_results AS (
-				SELECT
-					deck_key,
-					MIN(finish_percentage) AS best_finish_percentage
-				FROM rogue_results
-				GROUP BY deck_key
+				SELECT rr.*, MIN(finish_percentage) OVER (PARTITION BY deck_key) AS best_finish_percentage
+				FROM rogue_results rr
 			)
 			SELECT
 				rr.tournament_id,
@@ -232,10 +229,8 @@ export async function getTopRogueDecksForDate(
 				rr.rounds_played,
 				rr.finish_percentage,
 				rr.decklist_export
-			FROM rogue_results rr
-			INNER JOIN best_rogue_results brr
-				ON rr.deck_key = brr.deck_key
-			   AND rr.finish_percentage = brr.best_finish_percentage
+			FROM best_rogue_results rr
+			WHERE rr.finish_percentage = rr.best_finish_percentage
 			ORDER BY
 				rr.finish_percentage ASC,
 				rr.tournament_players DESC,
@@ -272,7 +267,7 @@ export async function getAvailableMetaDates(
 	const result = await db
 		.prepare(
 			`SELECT DISTINCT
-    report_date
+	report_date
 FROM import_runs
 WHERE status = 'Completed'
 ORDER BY report_date DESC
