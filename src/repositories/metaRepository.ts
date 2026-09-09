@@ -262,7 +262,8 @@ export async function getTopRogueDecksForDate(
 }
 
 export async function getAvailableMetaDates(
-	db: D1Database
+	db: D1Database,
+	allTime = false
 ): Promise<string[]> {
 	const result = await db
 		.prepare(
@@ -271,7 +272,7 @@ export async function getAvailableMetaDates(
 FROM import_runs
 WHERE status = 'Completed'
 ORDER BY report_date DESC
-LIMIT 28`
+${allTime ? "" : "LIMIT 28"}`
 		)
 		.all<{ report_date: string }>();
 

@@ -371,7 +371,7 @@ export default {
 
 			if (pathname === "/meta/available-dates") {
 				return jsonWithCors(request, env, {
-					success: true, dates: await getAvailableMetaDates(env.DB),
+					success: true, dates: await getAvailableMetaDates(env.DB, url.searchParams.get("range") === "all"),
 				}, { headers: { "Cache-Control": "no-store" } });
 			}
 
